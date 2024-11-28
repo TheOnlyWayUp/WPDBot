@@ -26,10 +26,12 @@ class MessageToStoryCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.pattern = re.compile(r"\d+|wattpad.com/story/\d+|wattpad.com/\d+")
         self.headers = {"user-agent": "WPDBot"}
         self.host = "https://wpd.rambhat.la"  # Note: If you're selfhosting a wpd instance, place its URL here
         self.host = self.host.rstrip("/")  # Remove trailing slash
+
+        self.story_pattern = r"wattpad\.com/story/(\d+)"
+        self.part_pattern = r"wattpad\.com/(\d+)"
 
     async def get_story_from_part(self, part_id: int) -> dict:
         """Retrieve a Story from a Part ID."""
@@ -37,7 +39,7 @@ class MessageToStoryCog(commands.Cog):
             headers=self.headers, raise_for_status=True
         ) as session:
             async with session.get(
-                f"https://www.wattpad.com/api/v3/story_parts/{part_id}?fields=groupId,group"
+                f"https://www.wattpad.com/api/v3/story_parts/{part_id}?fields=groupId,group(cover,readCount,voteCount,commentCount,modifyDate,numParts,language(name),user(name),completed,mature,title,parts(id))"
             ) as response:
                 data = await response.json()
                 return data
@@ -48,12 +50,12 @@ class MessageToStoryCog(commands.Cog):
             headers=self.headers, raise_for_status=True
         ) as session:
             async with session.get(
-                f"https://www.wattpad.com/api/v3/stories/{story_id}"
+                f"https://www.wattpad.com/api/v3/stories/{story_id}?fields=id,cover,readCount,voteCount,commentCount,modifyDate,numParts,language(name),user(name),completed,mature,title,parts(id)"
             ) as response:
                 data = await response.json()
                 return data
 
-    def create_embed(self, story: dict) -> Tuple[disnake.Embed, str, str]:
+    def create_embed(self, story: dict) -> disnake.Embed:
         short = f"👀 {story['readCount']} Reads  |  ⭐ {story['voteCount']} Votes |  🗨️ {story['commentCount']} Comments\n"
         short += f"🔖 {story['numParts']} Parts\n"
 
@@ -86,77 +88,63 @@ class MessageToStoryCog(commands.Cog):
 
         embed.add_field(name="\u200b", value="Was this helpful? React with 👍 or 👎")
 
-        return (
-            embed,
-            f"{self.host}/download/{story['id']}?bot=true",
-            f"{self.host}/download/{story['id']}?bot=true&download_images=true",
-        )
+        return embed
 
     @commands.Cog.listener(name="on_message")
     async def on_message(self, message: disnake.Message):
         if message.author.bot:
             return
 
-        matches = set(re.findall(self.pattern, message.content))
+        story_ids, part_ids = (
+            set(re.findall(self.story_pattern, message.content)),
+            set(re.findall(self.part_pattern, message.content)),
+        )
 
-        if not matches:
+        if not story_ids and not part_ids:
             return
 
-        for match in matches:
-            try:
-                # Part
-                data = (await self.get_story_from_part(match))["group"]
-                embed, download_url = self.create_embed(data)
-                to_react = await message.reply(
-                    embed=embed,
-                    components=[
-                        disnake.ui.Button(
-                            label="Download",
-                            url=download_url,
-                            style=disnake.ButtonStyle.primary,
-                        ),
-                        disnake.ui.Button(
-                            label="Read on Wattpad",
-                            url=f"https://wattpad.com/story/{data['id']}",
-                            style=disnake.ButtonStyle.primary,
-                        ),
-                    ],
-                )
-                await to_react.add_reaction("👍")
-                await to_react.add_reaction("👎")
+        skip_part_ids = []
+        embeds = {}  # story_id: disnake.Embed
 
-            except aiohttp.ClientResponseError:
-                pass
+        for story_id in story_ids:
+            data = await self.get_story(story_id)
+            embed = self.create_embed(data)
+            skip_part_ids = skip_part_ids + [int(part["id"]) for part in data["parts"]]
+            embeds[data["id"]] = embed
 
-            try:
-                # Story
-                data = await self.get_story(match)
-                embed, download_url, image_download_url = self.create_embed(data)
-                to_react = await message.reply(
-                    embed=embed,
-                    components=[
-                        disnake.ui.Button(
-                            label="Download",
-                            url=download_url,
-                            style=disnake.ButtonStyle.primary,
-                        ),
-                        disnake.ui.Button(
-                            label="Download with Images",
-                            url=image_download_url,
-                            style=disnake.ButtonStyle.green,
-                        ),
-                        disnake.ui.Button(
-                            label="Wattpad",
-                            url=f"https://wattpad.com/story/{data['id']}",
-                            style=disnake.ButtonStyle.primary,
-                        ),
-                    ],
-                )
-                await to_react.add_reaction("👍")
-                await to_react.add_reaction("👎")
+        for part_id in part_ids:
+            if part_id in skip_part_ids:
+                continue
+            data = await self.get_story_from_part(part_id)
+            embed = self.create_embed(data["group"])
+            skip_part_ids = skip_part_ids + [
+                int(part["id"]) for part in data["group"]["parts"]
+            ]
+            embeds[data["groupId"]] = embed
 
-            except aiohttp.ClientResponseError:
-                pass
+        for story_id, embed in embeds.items():
+            to_react = await message.reply(
+                embed=embed,
+                components=[
+                    disnake.ui.Button(
+                        label="Download",
+                        url=f"{self.host}/download/{story_id}?bot=true",
+                        style=disnake.ButtonStyle.primary,
+                    ),
+                    disnake.ui.Button(
+                        label="Download with Images",
+                        url=f"{self.host}/download/{story_id}?bot=true&download_images=true",
+                        style=disnake.ButtonStyle.green,
+                    ),
+                    disnake.ui.Button(
+                        label="Wattpad",
+                        url=f"https://wattpad.com/story/{story_id}",
+                        style=disnake.ButtonStyle.primary,
+                    ),
+                ],
+            )
+            await to_react.add_reaction("👍")
+            await to_react.add_reaction("👎")
 
 
 class Commands(commands.Cog):
