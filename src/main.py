@@ -53,7 +53,7 @@ class MessageToStoryCog(commands.Cog):
                 data = await response.json()
                 return data
 
-    def create_embed(self, story: dict) -> Tuple[disnake.Embed, str]:
+    def create_embed(self, story: dict) -> Tuple[disnake.Embed, str, str]:
         short = f"👀 {story['readCount']} Reads  |  ⭐ {story['voteCount']} Votes |  🗨️ {story['commentCount']} Comments\n"
         short += f"🔖 {story['numParts']} Parts\n"
 
@@ -86,91 +86,77 @@ class MessageToStoryCog(commands.Cog):
 
         embed.add_field(name="\u200b", value="Was this helpful? React with 👍 or 👎")
 
-        return embed, f"{self.host}/download/{story['id']}"
+        return (
+            embed,
+            f"{self.host}/download/{story['id']}?bot=true",
+            f"{self.host}/download/{story['id']}?bot=true&download_images=true",
+        )
 
     @commands.Cog.listener(name="on_message")
     async def on_message(self, message: disnake.Message):
         if message.author.bot:
             return
 
-
         matches = set(re.findall(self.pattern, message.content))
-  
+
         if not matches:
             return
 
         for match in matches:
+            try:
+                # Part
+                data = (await self.get_story_from_part(match))["group"]
+                embed, download_url = self.create_embed(data)
+                to_react = await message.reply(
+                    embed=embed,
+                    components=[
+                        disnake.ui.Button(
+                            label="Download",
+                            url=download_url,
+                            style=disnake.ButtonStyle.primary,
+                        ),
+                        disnake.ui.Button(
+                            label="Read on Wattpad",
+                            url=f"https://wattpad.com/story/{data['id']}",
+                            style=disnake.ButtonStyle.primary,
+                        ),
+                    ],
+                )
+                await to_react.add_reaction("👍")
+                await to_react.add_reaction("👎")
 
-            try:  # Is it a raw ID
-                int(match)
-                isPart = True
-                isStory = True
-            except:
-                try:  # Is it a part link
-                    match = match[12:]
-                    int(match)
-                    isPart = True
-                    isStory = False
-                except:
-                    try:  # Is it a story link
-                        match = match[6:]
-                        int(match)
-                        isPart = False
-                        isStory = True
-                    except:  # Catch-all
-                        return
+            except aiohttp.ClientResponseError:
+                pass
 
-            if isPart:
-                try:
-                    # Part
-                    data = (await self.get_story_from_part(match))["group"]
-                    embed, download_url = self.create_embed(data)
-                    to_react = await message.reply(
-                        embed=embed,
-                        components=[
-                            disnake.ui.Button(
-                                label="Download",
-                                url=download_url,
-                                style=disnake.ButtonStyle.primary,
-                            ),
-                            disnake.ui.Button(
-                                label="Add the Bot",
-                                url="https://discord.com/oauth2/authorize?client_id=1292173380065296395&permissions=274878285888&scope=bot%20applications.commands",
-                                style=disnake.ButtonStyle.green,
-                            ),
-                        ],
-                    )
-                    await to_react.add_reaction("👍")
-                    await to_react.add_reaction("👎")
+            try:
+                # Story
+                data = await self.get_story(match)
+                embed, download_url, image_download_url = self.create_embed(data)
+                to_react = await message.reply(
+                    embed=embed,
+                    components=[
+                        disnake.ui.Button(
+                            label="Download",
+                            url=download_url,
+                            style=disnake.ButtonStyle.primary,
+                        ),
+                        disnake.ui.Button(
+                            label="Download with Images",
+                            url=image_download_url,
+                            style=disnake.ButtonStyle.green,
+                        ),
+                        disnake.ui.Button(
+                            label="Wattpad",
+                            url=f"https://wattpad.com/story/{data['id']}",
+                            style=disnake.ButtonStyle.primary,
+                        ),
+                    ],
+                )
+                await to_react.add_reaction("👍")
+                await to_react.add_reaction("👎")
 
-                except aiohttp.ClientResponseError:
-                    pass
-
-            if isStory:
-                try:
-                    # Story
-                    data = await self.get_story(match)
-                    embed, download_url = self.create_embed(data)
-                    to_react = await message.reply(
-                        embed=embed,
-                        components=[
-                            disnake.ui.Button(
-                                label="Download",
-                                url=download_url,
-                                style=disnake.ButtonStyle.primary,
-                            ),
-                            disnake.ui.Button(
-                                label="Add the Bot",
-                                url="https://discord.com/oauth2/authorize?client_id=1292173380065296395&permissions=274878285888&scope=bot%20applications.commands",
-                                style=disnake.ButtonStyle.green,
-                            ),
-                        ],
-                    )
-                    await to_react.add_reaction("👍")
-                    await to_react.add_reaction("👎")
-
-                except aiohttp.ClientResponseError:
-                    pass
+            except aiohttp.ClientResponseError:
+                pass
 
 
 class Commands(commands.Cog):
