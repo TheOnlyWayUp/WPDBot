@@ -53,7 +53,7 @@ class MessageToStoryCog(commands.Cog):
                 data = await response.json()
                 return data
 
-    def create_embed(self, story: dict) -> Tuple[disnake.Embed, str]:
+    def create_embed(self, story: dict) -> Tuple[disnake.Embed, str, str]:
         short = f"👀 {story['readCount']} Reads  |  ⭐ {story['voteCount']} Votes |  🗨️ {story['commentCount']} Comments\n"
         short += f"🔖 {story['numParts']} Parts\n"
 
@@ -86,7 +86,11 @@ class MessageToStoryCog(commands.Cog):
 
         embed.add_field(name="\u200b", value="Was this helpful? React with 👍 or 👎")
 
-        return embed, f"{self.host}/download/{story['id']}"
+        return (
+            embed,
+            f"{self.host}/download/{story['id']}?bot=true",
+            f"{self.host}/download/{story['id']}?bot=true&download_images=true",
+        )
 
     @commands.Cog.listener(name="on_message")
     async def on_message(self, message: disnake.Message):
@@ -98,7 +102,6 @@ class MessageToStoryCog(commands.Cog):
             return
 
         for match in matches:
-
             try:
                 # Part
                 data = (await self.get_story_from_part(match))["group"]
@@ -112,14 +115,9 @@ class MessageToStoryCog(commands.Cog):
                             style=disnake.ButtonStyle.primary,
                         ),
                         disnake.ui.Button(
-                            label="Wattpad",
+                            label="Read on Wattpad",
                             url=f"https://wattpad.com/story/{data['id']}",
                             style=disnake.ButtonStyle.primary,
-                        ),
-                        disnake.ui.Button(
-                            label="Add the Bot",
-                            url="https://discord.com/oauth2/authorize?client_id=1292173380065296395&permissions=274878285888&scope=bot%20applications.commands",
-                            style=disnake.ButtonStyle.green,
                         ),
                     ],
                 )
@@ -132,7 +130,7 @@ class MessageToStoryCog(commands.Cog):
             try:
                 # Story
                 data = await self.get_story(match)
-                embed, download_url = self.create_embed(data)
+                embed, download_url, image_download_url = self.create_embed(data)
                 to_react = await message.reply(
                     embed=embed,
                     components=[
@@ -142,14 +140,14 @@ class MessageToStoryCog(commands.Cog):
                             style=disnake.ButtonStyle.primary,
                         ),
                         disnake.ui.Button(
+                            label="Download with Images",
+                            url=image_download_url,
+                            style=disnake.ButtonStyle.green,
+                        ),
+                        disnake.ui.Button(
                             label="Wattpad",
                             url=f"https://wattpad.com/story/{data['id']}",
                             style=disnake.ButtonStyle.primary,
-                        ),
-                        disnake.ui.Button(
-                            label="Add the Bot",
-                            url="https://discord.com/oauth2/authorize?client_id=1292173380065296395&permissions=274878285888&scope=bot%20applications.commands",
-                            style=disnake.ButtonStyle.green,
                         ),
                     ],
                 )
