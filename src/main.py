@@ -27,7 +27,7 @@ class MessageToStoryCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.headers = {"user-agent": "WPDBot"}
-        self.host = "https://wpd.rambhat.la"  # Note: If you're selfhosting a wpd instance, place its URL here
+        self.host = "https://wpd.my"  # Note: If you're selfhosting a wpd instance, place its URL here
         self.host = self.host.rstrip("/")  # Remove trailing slash
 
         self.story_pattern = r"wattpad\.com/story/(\d+)"
